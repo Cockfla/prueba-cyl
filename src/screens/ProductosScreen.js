@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -18,24 +18,29 @@ export default function ProductosScreen() {
   const [productos, setProductos] = useState([]);
   const [nombre, setNombre] = useState("");
   const [camara, setCamara] = useState("");
-  const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const wasConnected = useRef(isConnected);
 
   const loadProductos = async () => {
-    setLoading(true);
     try {
       const data = await productService.getProductos(isConnected);
       setProductos(data);
     } catch (error) {
       console.error("Error loading products:", error);
       Alert.alert("Error", "No se pudieron cargar los productos");
-    } finally {
-      setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadProductos();
+    (async () => {
+      if (!wasConnected.current && isConnected) {
+        // Pasaste de offline a online
+        await handleSync();
+      } else {
+        await loadProductos();
+      }
+      wasConnected.current = isConnected;
+    })();
   }, [isConnected]);
 
   const handleAdd = async () => {
@@ -43,12 +48,15 @@ export default function ProductosScreen() {
       Alert.alert("Error", "Debe ingresar nombre y cámara");
       return;
     }
-
     try {
-      await productService.createProducto(nombre, camara, isConnected);
+      const nuevoProducto = await productService.createProducto(
+        nombre,
+        camara,
+        isConnected
+      );
+      setProductos((prev) => [...prev, nuevoProducto]);
       setNombre("");
       setCamara("");
-      await loadProductos();
       Alert.alert("Éxito", "Producto creado correctamente");
     } catch (error) {
       console.error("Error creating product:", error);
@@ -67,8 +75,14 @@ export default function ProductosScreen() {
           onPress: async (nuevaCamara) => {
             if (nuevaCamara) {
               try {
-                await productService.updateCamara(id, nuevaCamara, isConnected);
-                await loadProductos();
+                const actualizado = await productService.updateCamara(
+                  id,
+                  nuevaCamara,
+                  isConnected
+                );
+                setProductos((prev) =>
+                  prev.map((p) => (p.id == id ? actualizado : p))
+                );
                 Alert.alert("Éxito", "Cámara actualizada correctamente");
               } catch (error) {
                 console.error("Error updating camera:", error);
@@ -91,7 +105,7 @@ export default function ProductosScreen() {
         onPress: async () => {
           try {
             await productService.deleteProducto(id, isConnected);
-            await loadProductos();
+            setProductos((prev) => prev.filter((p) => p.id != id));
             Alert.alert("Éxito", "Producto eliminado correctamente");
           } catch (error) {
             console.error("Error deleting product:", error);
@@ -115,15 +129,6 @@ export default function ProductosScreen() {
       setSyncing(false);
     }
   };
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3498db" />
-        <Text>Cargando productos...</Text>
-      </View>
-    );
-  }
 
   return (
     <View style={styles.container}>
@@ -206,16 +211,7 @@ export default function ProductosScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f8f9fa",
-    padding: 16,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  container: { flex: 1, backgroundColor: "#f8f9fa", padding: 16 },
   connectionContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -230,11 +226,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  connectionText: {
-    marginHorizontal: 10,
-    fontSize: 16,
-    fontWeight: "500",
-  },
+  connectionText: { marginHorizontal: 10, fontSize: 16, fontWeight: "500" },
   formContainer: {
     marginBottom: 20,
     backgroundColor: "#fff",
@@ -256,12 +248,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: "#fff",
   },
-  syncButtonContainer: {
-    marginBottom: 20,
-  },
-  listContainer: {
-    paddingBottom: 20,
-  },
+  syncButtonContainer: { marginBottom: 20 },
+  listContainer: { paddingBottom: 20 },
   productItem: {
     backgroundColor: "#fff",
     borderRadius: 10,
@@ -276,27 +264,11 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  productInfo: {
-    flex: 1,
-  },
-  productName: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 5,
-  },
-  productCamera: {
-    fontSize: 16,
-    color: "#555",
-  },
-  syncPending: {
-    fontSize: 14,
-    color: "#e67e22",
-    marginTop: 5,
-  },
-  productActions: {
-    flexDirection: "row",
-    marginLeft: 10,
-  },
+  productInfo: { flex: 1 },
+  productName: { fontSize: 18, fontWeight: "bold", marginBottom: 5 },
+  productCamera: { fontSize: 16, color: "#555" },
+  syncPending: { fontSize: 14, color: "#e67e22", marginTop: 5 },
+  productActions: { flexDirection: "row", marginLeft: 10 },
   emptyList: {
     textAlign: "center",
     marginTop: 20,
